@@ -28,7 +28,7 @@ func TestJsonCodec_Encode(t *testing.T) {
 		{
 			response: promql.Matrix{
 				promql.Series{
-					Floats: []promql.FPoint{{F: 1, T: 1000}},
+					Floats: []promql.FPoint{{F: 1, T: 1000}, {F: 6.2, T: 2000}},
 					Metric: labels.FromStrings("__name__", "foo"),
 				},
 			},

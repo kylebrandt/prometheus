@@ -101,21 +101,66 @@ func marshalGDFSeriesJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 		func() {
 			stream.WriteObjectStart()
 			stream.WriteObjectField("type")
+			stream.WriteString("time")
+			//TODO: typeinfo time
+			stream.WriteObjectEnd()
+
+			stream.WriteMore()
+
+			stream.WriteObjectStart()
+			stream.WriteObjectField("type")
 			stream.WriteString("number")
 			stream.WriteMore()
 			//TODO: typeinfo float64
 			stream.WriteObjectField("labels")
 			marshalLabelsJSON(s.Metric, stream)
-
-			
-
-
+			stream.WriteObjectEnd()
 		}()
-
 		stream.WriteArrayEnd()
 	}()
 
-	stream.WriteObjectEnd()
+	stream.WriteObjectEnd() // End Schema
+
+	stream.WriteMore()
+
+	stream.WriteObjectField("data")
+	func() {
+		stream.WriteObjectStart()
+		ts := make([]int64, len(s.Floats))
+		vals := make([]float64, len(s.Floats))
+		for i, p := range s.Floats {
+			ts[i] = p.T
+			vals[i] = p.F
+		}
+
+		stream.WriteObjectField("values")
+		stream.WriteArrayStart()
+
+		stream.WriteArrayStart()
+		for i, t := range ts {
+			stream.WriteInt64(t)
+			if i == len(ts)-1 {
+				continue
+			}
+			stream.WriteMore()
+		}
+		stream.WriteArrayEnd()
+		
+		stream.WriteMore()
+		stream.WriteArrayStart()
+		for i, f := range vals {
+			stream.WriteFloat64(f)
+			if i == len(vals)-1 {
+				continue
+			}
+			stream.WriteMore()
+		}
+		stream.WriteArrayEnd()
+
+		stream.WriteArrayEnd()
+		stream.WriteObjectEnd()
+	}()
+
 	stream.WriteObjectEnd()
 
 	// s := *((*promql.Series)(ptr))
