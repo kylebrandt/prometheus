@@ -1,0 +1,322 @@
+// Copyright 2016 The Prometheus Authors
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package v1
+
+import (
+	"unsafe"
+
+	jsoniter "github.com/json-iterator/go"
+
+	"github.com/prometheus/prometheus/model/exemplar"
+	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql"
+	"github.com/prometheus/prometheus/util/jsonutil"
+)
+
+func init() {
+	//jsoniter.RegisterTypeEncoderFunc("promql.Matrix", marshalGDFMatrixJSON, marshalGDFSeriesJSONIsEmpty)
+	jsoniter.RegisterTypeEncoderFunc("promql.Series", marshalGDFSeriesJSON, marshalGDFSeriesJSONIsEmpty)
+	jsoniter.RegisterTypeEncoderFunc("promql.Sample", marshalGDFSampleJSON, marshalGDFSampleJSONIsEmpty)
+	jsoniter.RegisterTypeEncoderFunc("promql.FPoint", marshalGDFFPointJSON, marshalGDFPointJSONIsEmpty)
+	jsoniter.RegisterTypeEncoderFunc("promql.HPoint", marshalGDFHPointJSON, marshalGDFPointJSONIsEmpty)
+	jsoniter.RegisterTypeEncoderFunc("exemplar.Exemplar", marshalGDFExemplarJSON, marshalExemplarJSONEmpty)
+	jsoniter.RegisterTypeEncoderFunc("labels.Labels", unsafeMarshalLabelsJSON, labelsIsEmpty)
+}
+
+// JSONGDFCodec is a Codec that encodes API responses as JSON.
+type JSONGDFCodec struct{}
+
+func (j JSONGDFCodec) ContentType() MIMEType {
+	return MIMEType{Type: "application", SubType: "json"}
+}
+
+func (j JSONGDFCodec) CanEncode(_ *Response) bool {
+	return true
+}
+
+func (j JSONGDFCodec) Encode(resp *Response) ([]byte, error) {
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	return json.Marshal(resp.Data)
+}
+
+// marshalSeriesJSON writes something like the following:
+//
+//	{
+//	   "metric" : {
+//	      "__name__" : "up",
+//	      "job" : "prometheus",
+//	      "instance" : "localhost:9090"
+//	   },
+//	   "values": [
+//	      [ 1435781451.781, "1" ],
+//	      < more values>
+//	   ],
+//	   "histograms": [
+//	      [ 1435781451.781, { < histogram, see jsonutil.MarshalHistogram > } ],
+//	      < more histograms >
+//	   ],
+//	},
+func marshalGDFSeriesJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	s := *((*promql.Series)(ptr))
+	stream.WriteObjectStart()
+
+	stream.WriteObjectField("schema")
+	stream.WriteObjectStart()
+	func() {
+		stream.WriteObjectField("meta")
+		func() {
+			stream.WriteObjectStart()
+
+			stream.WriteObjectField("type")
+			stream.WriteString("timeseries-multi")
+			stream.WriteMore()
+
+			stream.WriteObjectField("typeVersion")
+			stream.WriteArrayStart()
+			stream.WriteFloat32(0)
+			stream.WriteMore()
+			stream.WriteFloat32(1)
+			stream.WriteArrayEnd()
+
+			stream.WriteObjectEnd()
+		}()
+	}()
+
+	func() {
+		stream.WriteMore()
+		stream.WriteObjectField("fields")
+		stream.WriteArrayStart()
+
+		func() {
+			stream.WriteObjectStart()
+			stream.WriteObjectField("type")
+			stream.WriteString("time")
+			//TODO: typeinfo time
+			stream.WriteObjectEnd()
+
+			stream.WriteMore()
+
+			stream.WriteObjectStart()
+			stream.WriteObjectField("type")
+			stream.WriteString("number")
+			stream.WriteMore()
+			//TODO: typeinfo float64
+			stream.WriteObjectField("labels")
+			marshalLabelsJSON(s.Metric, stream)
+			stream.WriteObjectEnd()
+		}()
+		stream.WriteArrayEnd()
+	}()
+
+	stream.WriteObjectEnd() // End Schema
+
+	stream.WriteMore()
+
+	stream.WriteObjectField("data")
+	func() {
+		stream.WriteObjectStart()
+		ts := make([]int64, len(s.Floats))
+		vals := make([]float64, len(s.Floats))
+		for i, p := range s.Floats {
+			ts[i] = p.T
+			vals[i] = p.F
+		}
+
+		stream.WriteObjectField("values")
+		stream.WriteArrayStart()
+
+		stream.WriteArrayStart()
+		for i, t := range ts {
+			stream.WriteInt64(t)
+			if i == len(ts)-1 {
+				continue
+			}
+			stream.WriteMore()
+		}
+		stream.WriteArrayEnd()
+		
+		stream.WriteMore()
+		stream.WriteArrayStart()
+		for i, f := range vals {
+			stream.WriteFloat64(f)
+			if i == len(vals)-1 {
+				continue
+			}
+			stream.WriteMore()
+		}
+		stream.WriteArrayEnd()
+
+		stream.WriteArrayEnd()
+		stream.WriteObjectEnd()
+	}()
+
+	stream.WriteObjectEnd()
+
+	// s := *((*promql.Series)(ptr))
+	// stream.WriteObjectStart()
+	// stream.WriteObjectField(`metric`)
+	// marshalLabelsJSON(s.Metric, stream)
+
+	// for i, p := range s.Floats {
+	// 	stream.WriteMore()
+	// 	if i == 0 {
+	// 		stream.WriteObjectField(`values`)
+	// 		stream.WriteArrayStart()
+	// 	}
+	// 	marshalGDFFPointJSON(unsafe.Pointer(&p), stream)
+	// }
+	// if len(s.Floats) > 0 {
+	// 	stream.WriteArrayEnd()
+	// }
+	// for i, p := range s.Histograms {
+	// 	stream.WriteMore()
+	// 	if i == 0 {
+	// 		stream.WriteObjectField(`histograms`)
+	// 		stream.WriteArrayStart()
+	// 	}
+	// 	marshalGDFHPointJSON(unsafe.Pointer(&p), stream)
+	// }
+	// if len(s.Histograms) > 0 {
+	// 	stream.WriteArrayEnd()
+	// }
+	// stream.WriteObjectEnd()
+}
+
+func marshalGDFSeriesJSONIsEmpty(unsafe.Pointer) bool {
+	return false
+}
+
+// marshalGDFSampleJSON writes something like the following for normal value samples:
+//
+//	{
+//	   "metric" : {
+//	      "__name__" : "up",
+//	      "job" : "prometheus",
+//	      "instance" : "localhost:9090"
+//	   },
+//	   "value": [ 1435781451.781, "1.234" ]
+//	},
+//
+// For histogram samples, it writes something like this:
+//
+//	{
+//	   "metric" : {
+//	      "__name__" : "up",
+//	      "job" : "prometheus",
+//	      "instance" : "localhost:9090"
+//	   },
+//	   "histogram": [ 1435781451.781, { < histogram, see jsonutil.MarshalHistogram > } ]
+//	},
+func marshalGDFSampleJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	s := *((*promql.Sample)(ptr))
+	stream.WriteObjectStart()
+	stream.WriteObjectField(`metric`)
+	marshalLabelsJSON(s.Metric, stream)
+	stream.WriteMore()
+	if s.H == nil {
+		stream.WriteObjectField(`value`)
+	} else {
+		stream.WriteObjectField(`histogram`)
+	}
+	stream.WriteArrayStart()
+	jsonutil.MarshalTimestamp(s.T, stream)
+	stream.WriteMore()
+	if s.H == nil {
+		jsonutil.MarshalFloat(s.F, stream)
+	} else {
+		jsonutil.MarshalHistogram(s.H, stream)
+	}
+	stream.WriteArrayEnd()
+	stream.WriteObjectEnd()
+}
+
+func marshalGDFSampleJSONIsEmpty(unsafe.Pointer) bool {
+	return false
+}
+
+// marshalGDFFPointJSON writes `[ts, "1.234"]`.
+func marshalGDFFPointJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	p := *((*promql.FPoint)(ptr))
+	stream.WriteArrayStart()
+	jsonutil.MarshalTimestamp(p.T, stream)
+	stream.WriteMore()
+	jsonutil.MarshalFloat(p.F, stream)
+	stream.WriteArrayEnd()
+}
+
+// marshalGDFHPointJSON writes `[ts, { < histogram, see jsonutil.MarshalHistogram > } ]`.
+func marshalGDFHPointJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	p := *((*promql.HPoint)(ptr))
+	stream.WriteArrayStart()
+	jsonutil.MarshalTimestamp(p.T, stream)
+	stream.WriteMore()
+	jsonutil.MarshalHistogram(p.H, stream)
+	stream.WriteArrayEnd()
+}
+
+func marshalGDFPointJSONIsEmpty(unsafe.Pointer) bool {
+	return false
+}
+
+// marshalExemplarJSON writes.
+//
+//	{
+//	   labels: <labels>,
+//	   value: "<string>",
+//	   timestamp: <float>
+//	}
+func marshalGDFExemplarJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	p := *((*exemplar.Exemplar)(ptr))
+	stream.WriteObjectStart()
+
+	// "labels" key.
+	stream.WriteObjectField(`labels`)
+	marshalLabelsJSON(p.Labels, stream)
+
+	// "value" key.
+	stream.WriteMore()
+	stream.WriteObjectField(`value`)
+	jsonutil.MarshalFloat(p.Value, stream)
+
+	// "timestamp" key.
+	stream.WriteMore()
+	stream.WriteObjectField(`timestamp`)
+	jsonutil.MarshalTimestamp(p.Ts, stream)
+
+	stream.WriteObjectEnd()
+}
+
+func marshalGDFExemplarJSONEmpty(unsafe.Pointer) bool {
+	return false
+}
+
+func unsafeMarshalGDFLabelsJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	labelsPtr := (*labels.Labels)(ptr)
+	marshalLabelsJSON(*labelsPtr, stream)
+}
+
+func marshalGDFLabelsJSON(lbls labels.Labels, stream *jsoniter.Stream) {
+	stream.WriteObjectStart()
+	i := 0
+	lbls.Range(func(v labels.Label) {
+		if i != 0 {
+			stream.WriteMore()
+		}
+		i++
+		stream.WriteString(v.Name)
+		stream.WriteRaw(`:`)
+		stream.WriteString(v.Value)
+	})
+	stream.WriteObjectEnd()
+}
