@@ -277,7 +277,7 @@ func NewAPI(
 		remoteReadHandler: remote.NewReadHandler(logger, registerer, q, configFunc, remoteReadSampleLimit, remoteReadConcurrencyLimit, remoteReadMaxBytesInFrame),
 	}
 
-	a.InstallCodec(JSONCodec{})
+	a.InstallCodec(JSONGDFCodec{})
 
 	if statsRenderer != nil {
 		a.statsRenderer = statsRenderer
@@ -463,13 +463,9 @@ func (api *API) query(r *http.Request) (result apiFuncResult) {
 	if sr == nil {
 		sr = defaultStatsRenderer
 	}
-	qs := sr(ctx, qry.Stats(), r.FormValue("stats"))
+	//qs := sr(ctx, qry.Stats(), r.FormValue("stats"))
 
-	return apiFuncResult{&QueryData{
-		ResultType: res.Value.Type(),
-		Result:     res.Value,
-		Stats:      qs,
-	}, nil, res.Warnings, qry.Close}
+	return apiFuncResult{res, nil, res.Warnings, qry.Close}
 }
 
 func (api *API) formatQuery(r *http.Request) (result apiFuncResult) {
@@ -565,13 +561,9 @@ func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
 	if sr == nil {
 		sr = defaultStatsRenderer
 	}
-	qs := sr(ctx, qry.Stats(), r.FormValue("stats"))
+	//qs := sr(ctx, qry.Stats(), r.FormValue("stats"))
 
-	return apiFuncResult{&QueryData{
-		ResultType: res.Value.Type(),
-		Result:     res.Value,
-		Stats:      qs,
-	}, nil, res.Warnings, qry.Close}
+	return apiFuncResult{res, nil, res.Warnings, qry.Close}
 }
 
 func (api *API) queryExemplars(r *http.Request) apiFuncResult {
