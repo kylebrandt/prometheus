@@ -291,6 +291,7 @@ func NewAPI(
 	}
 
 	a.InstallCodec(JSONCodec{})
+	a.InstallCodec(JSONGDFCodec{})
 
 	if statsRenderer != nil {
 		a.statsRenderer = statsRenderer
@@ -483,6 +484,11 @@ func (api *API) query(r *http.Request) (result apiFuncResult) {
 	}
 	qs := sr(ctx, qry.Stats(), r.FormValue("stats"))
 
+	if r.Header.Get("Accept") == "application/gdf" {
+		api.logger.Debug("df response", "header", r.Header.Get("Accept"), "type", res.Value.Type())
+		return apiFuncResult{res, nil, res.Warnings, qry.Close}
+	}
+
 	return apiFuncResult{&QueryData{
 		ResultType: res.Value.Type(),
 		Result:     res.Value,
@@ -593,6 +599,11 @@ func (api *API) queryRange(r *http.Request) (result apiFuncResult) {
 		sr = DefaultStatsRenderer
 	}
 	qs := sr(ctx, qry.Stats(), r.FormValue("stats"))
+
+	if r.Header.Get("Accept") == "application/gdf" {
+		api.logger.Debug("df response", "header", r.Header.Get("Accept"), "type", res.Value.Type())
+		return apiFuncResult{res, nil, res.Warnings, qry.Close}
+	}
 
 	return apiFuncResult{&QueryData{
 		ResultType: res.Value.Type(),
